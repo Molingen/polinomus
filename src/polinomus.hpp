@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
+#include <ranges>
+#include <unordered_map>
 #include <vector>
 
 #include "forward_list.hpp"
@@ -41,56 +43,120 @@ public:
 
     Polynomus operator+(const Polynomus& other) const {
         Polynomus result;
-
+        std::vector<Monomus> vec;
         auto it1 = data.begin();
         auto it2 = other.data.begin();
 
         while (it1 != data.end() && it2 != other.data.end()) {
-            if (it1->getDeg() > it2->getDeg()) {
-                result.addMonom(*it1++);
-            } else if (it1->getDeg() < it2->getDeg()) {
-                result.addMonom(*it2++);
+            if (*it1 > *it2) {
+                vec.push_back(*it1);
+                ++it1;
+            } else if (*it2 > *it1) {
+                vec.push_back(*it2);
+                ++it2;
             } else {
-                Monomus sum = *it1 + *it2;
-                if (std::abs(sum.getCoeff()) >= EPS)
-                    result.addMonom(sum);
+                double sumc = it1->getCoeff() + it2->getCoeff();
+                if (std::abs(sumc) >= EPS) {
+                    vec.emplace_back(it1->getDeg(), sumc);
+                }
                 ++it1;
                 ++it2;
             }
         }
-        while (it1 != data.end()) result.addMonom(*it1++);
-        while (it2 != other.data.end()) result.addMonom(*it2++);
-        result.normalize();
+        while (it1 != data.end()) {
+            vec.push_back(*it1);
+            ++it1;
+        }
+        while (it2 != other.data.end()) {
+            vec.push_back(*it2);
+            ++it2;
+        }
+
+        for (auto & it : std::ranges::reverse_view(vec)) {
+            result.data.push_front(it);
+        }
         return result;
     }
 
     Polynomus operator-(const Polynomus& other) const {
-        Polynomus result = *this;
-        for (auto & it : other.data) {
-            result.addMonom(Monomus(it.getDeg(), -it.getCoeff()));
+        Polynomus result;
+        std::vector<Monomus> vec;
+        auto it1 = data.begin();
+        auto it2 = other.data.begin();
+
+        while (it1 != data.end() && it2 != other.data.end()) {
+            if (*it1 > *it2) {
+                vec.push_back(*it1);
+                ++it1;
+            } else if (*it2 > *it1) {
+                vec.emplace_back(it2->getDeg(), -it2->getCoeff());
+                ++it2;
+            } else {
+                double diffc = it1->getCoeff() - it2->getCoeff();
+                if (std::abs(diffc) >= EPS) {
+                    vec.emplace_back(it1->getDeg(), diffc);
+                }
+                ++it1;
+                ++it2;
+            }
         }
-        result.normalize();
+        while (it1 != data.end()) {
+            vec.push_back(*it1);
+            ++it1;
+        }
+        while (it2 != other.data.end()) {
+            vec.emplace_back(it2->getDeg(), -it2->getCoeff());
+            ++it2;
+        }
+
+        for (auto & it : std::ranges::reverse_view(vec)) {
+            result.data.push_front(it);
+        }
         return result;
     }
 
     Polynomus operator*(const Polynomus& other) const {
         Polynomus result;
-        for (auto & it1 : data) {
-            for (auto & it2 : other.data) {
-                result.addMonom(it1 * it2);
+        std::unordered_map<uint32_t, double> tmp;
+
+        for (const auto& m1 : data) {
+            for (const auto& m2 : other.data) {
+                Monomus prod = m1 * m2;
+                tmp[prod.getDeg()] += prod.getCoeff();
             }
         }
-        result.normalize();
+
+        std::vector<Monomus> vec;
+        for (const auto& [deg, coeff] : tmp) {
+            if (std::abs(coeff) >= EPS) {
+                vec.emplace_back(deg, coeff);
+            }
+        }
+        auto cmp = [](const Monomus& a, const Monomus& b) {
+            int td1 = a.totalDeg();
+            int td2 = b.totalDeg();
+            if (td1 != td2) return td1 > td2;
+            if (a.x() != b.x()) return a.x() > b.x();
+            if (a.y() != b.y()) return a.y() > b.y();
+            return a.z() > b.z();
+        };
+        std::ranges::sort(vec, cmp);
+        for (auto & it : std::ranges::reverse_view(vec)) {
+            result.data.push_front(it);
+        }
         return result;
     }
 
     Polynomus operator*(double scalar) const {
         if (std::abs(scalar) < EPS) return {};
         Polynomus result;
-        for (auto & it : data) {
-            result.addMonom(Monomus(it.getDeg(), it.getCoeff() * scalar));
+        std::vector<Monomus> vec;
+        for (const auto& m : data) {
+            vec.emplace_back(m.getDeg(), m.getCoeff() * scalar);
         }
-        result.normalize();
+        for (auto & it : std::ranges::reverse_view(vec)) {
+            result.data.push_front(it);
+        }
         return result;
     }
 
@@ -155,24 +221,6 @@ public:
             firstPrinted = true;
         }
         return os;
-    }
-
-    void normalize() {
-        std::vector<Monomus> v;
-        for (auto & it : data) if (std::abs(it.getCoeff()) > EPS) v.push_back(it);
-        auto cmp = [](const Monomus& a, const Monomus& b) {
-            int td1 = a.x() + a.y() + a.z();
-            int td2 = b.x() + b.y() + b.z();
-            if (td1 != td2) return td1 > td2;
-            if (a.x() != b.x()) return a.x() > b.x();
-            if (a.y() != b.y()) return a.y() > b.y();
-            return a.z() > b.z();
-        };
-        std::ranges::sort(v, cmp);
-        data.clear();
-        for (int i = static_cast<int>(v.size()) - 1; i >= 0; --i) {
-            data.push_front(v[i]);
-        }
     }
 
 private:
